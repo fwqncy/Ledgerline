@@ -7,7 +7,7 @@ type Props = { params: Promise<{ module: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const mod = findModule((await params).module);
-  return { title: mod?.manifest.title ?? 'Not found' };
+  return { title: mod?.manifest.title ?? 'Not Found' };
 }
 
 export default async function ModulePage({ params }: Props) {
@@ -16,13 +16,11 @@ export default async function ModulePage({ params }: Props) {
   const { Page, manifest, deployedAt } = mod;
 
   return (
-    <div className="ll-module">
-      <div className="ll-module__body">
-        <Page />
-      </div>
-      <footer className="ll-module__footer ll-mono" translate="no">
+    <>
+      <Page />
+      <p className="ll-module-stamp ll-mono" translate="no">
         {manifest.name}@v{manifest.version} · <RelativeTime iso={deployedAt} prefix="deployed " />
-      </footer>
-    </div>
+      </p>
+    </>
   );
 }

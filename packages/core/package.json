@@ -9,13 +9,19 @@
     "./format": "./src/format.ts",
     "./client": "./src/client.tsx",
     "./ui": "./src/ui.tsx",
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./theme": "./src/theme.ts",
+    "./geo": "./src/geo.ts",
+    "./seed": "./src/seed.ts",
+    "./toast": "./src/toast.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.0",
     "@trpc/client": "^11.6.0",
     "@trpc/server": "^11.6.0",
-    "@trpc/tanstack-react-query": "^11.6.0"
+    "@trpc/tanstack-react-query": "^11.6.0",
+    "gsap": "^3.15.0",
+    "@gsap/react": "^2.1.2"
   },
   "peerDependencies": {
     "react": "^19.0.0",

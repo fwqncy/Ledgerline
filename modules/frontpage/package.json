@@ -1,0 +1,25 @@
+{
+  "name": "@ledgerline/frontpage",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    ".": "./index.ts",
+    "./router": "./router.ts"
+  },
+  "dependencies": {
+    "@gsap/react": "^2.1.2",
+    "@ledgerline/core": "*",
+    "@tanstack/react-query": "^5.90.0",
+    "@trpc/server": "^11.6.0",
+    "gsap": "^3.15.0",
+    "zod": "^3.25.0",
+    "three": "^0.186.0"
+  },
+  "peerDependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0"
+  }
+}

@@ -1,21 +1,23 @@
 'use client';
 
+import { useNotifyDataChanged } from '@ledgerline/core/client';
 import { formatMoney } from '@ledgerline/core/format';
 import {
-  Code,
+  Box,
   Empty,
   FilterLinks,
   Money,
-  Notice,
+  PageHeader,
   RelativeTime,
   SkeletonRows,
   Spinner,
   StatusPill,
+  toast,
 } from '@ledgerline/core/ui';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { ModuleProvider, useTRPC } from '../client';
 
 const QUEUE_STATUSES = ['open', 'cleared', 'rejected'] as const;
@@ -31,67 +33,47 @@ export function RiskPage() {
 
 function Risk() {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const notifyDataChanged = useNotifyDataChanged();
   const status: QueueStatus = QUEUE_STATUSES.find((s) => s === searchParams.get('status')) ?? 'open';
-  const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: ReactNode } | null>(null);
 
-  const queue = useQuery(trpc.queue.queryOptions({ status }));
+  const queue = useQuery({ ...trpc.queue.queryOptions({ status }), refetchInterval: 15_000 });
   const rules = useQuery(trpc.rules.queryOptions());
 
-  const settle = {
-    onError: (error: { message: string }) => setNotice({ tone: 'error', text: error.message }),
-    onSettled: async () => {
-      await queryClient.invalidateQueries();
-      router.refresh();
-    },
-  };
   const clear = useMutation(
     trpc.clear.mutationOptions({
-      ...settle,
       onSuccess: (flag) =>
-        setNotice({
+        toast.show({
           tone: 'success',
-          text: (
-            <>
-              Flag cleared. <Code>{flag.payoutId}</Code> is back in Payouts, ready to approve.{' '}
-              <Link href={`/payouts?id=${flag.payoutId}`} className="ll-link">
-                Open Payout
-              </Link>
-            </>
-          ),
+          title: `Cleared ${flag.payoutId}`,
+          body: 'It’s back in Payouts, ready to approve.',
+          action: { label: 'Open', onClick: () => router.push(`/payouts?id=${flag.payoutId}`) },
         }),
+      onError: (error) => toast.show({ tone: 'error', title: error.message }),
+      onSettled: notifyDataChanged,
     }),
   );
   const reject = useMutation(
     trpc.reject.mutationOptions({
-      ...settle,
-      onSuccess: (flag) =>
-        setNotice({ tone: 'success', text: <>Payout <Code>{flag.payoutId}</Code> rejected. It won’t be sent.</> }),
+      onSuccess: (flag) => toast.show({ tone: 'success', title: `Voided ${flag.payoutId}`, body: 'It won’t be sent.' }),
+      onError: (error) => toast.show({ tone: 'error', title: error.message }),
+      onSettled: notifyDataChanged,
     }),
   );
   const busyId = clear.isPending ? clear.variables?.id : reject.isPending ? reject.variables?.id : undefined;
 
   return (
     <div className="ll-page">
-      <header className="ll-page__header">
-        <div>
-          <h1 className="ll-page__title">Risk</h1>
-          <p className="ll-page__subtitle">
-            Payouts held by a rule. Clear one to release it to Payouts, or reject it to stop it for good.
-          </p>
-        </div>
-      </header>
-
-      <Notice notice={notice} onDismiss={() => setNotice(null)} />
+      <PageHeader
+        kicker="Section C · Vetting"
+        title="Risk"
+        deck="Payouts held by a rule wait here. Clear one to release it to Payouts, or reject it to stop it for good."
+      />
 
       <div className="ll-split ll-split--wide">
-        <section className="ll-card ll-card--flush" aria-labelledby="risk-queue-title">
-          <h2 id="risk-queue-title" className="ll-visually-hidden">
-            Review Queue
-          </h2>
-          <div className="ll-card__toolbar">
+        <Box label="The Review Queue" meta={queue.data ? `${queue.data.length} ${status}` : undefined}>
+          <div className="ll-box__toolbar">
             <FilterLinks
               label="Filter by outcome"
               param="status"
@@ -108,32 +90,36 @@ function Risk() {
           ) : queue.isError ? (
             <Empty>
               Couldn’t load the queue. Check your connection & try again.
-              <button type="button" className="ll-button ll-button--ghost" onClick={() => queue.refetch()}>
+              <button type="button" className="ll-button" onClick={() => queue.refetch()}>
                 Retry
               </button>
             </Empty>
           ) : queue.data.length === 0 ? (
             <Empty>
-              {status === 'open' ? 'Nothing is waiting on Risk.' : `No ${status} flags yet.`}
+              {status === 'open' ? 'Nothing is waiting on Risk. A quiet day at the desk.' : `No ${status} flags yet.`}
               <Link href="/payouts" className="ll-link">
                 Go to Payouts
               </Link>
             </Empty>
           ) : (
             <ul className="ll-list">
-              {queue.data.map((flag) => (
+              {queue.data.slice(0, 60).map((flag) => (
                 <li key={flag.id} className="ll-row ll-row--static ll-risk-row">
                   <span className="ll-row__main">
                     <Link href={`/payouts?id=${flag.payoutId}`} className="ll-row__title ll-row__link">
                       {flag.payout?.beneficiary ?? 'Unknown payout'}
                     </Link>
                     <span className="ll-row__meta">
-                      <Code>{flag.payoutId}</Code> · <RelativeTime iso={flag.createdAt} />
+                      <span className="ll-mono" translate="no">
+                        {flag.payoutId}
+                      </span>
+                      <span aria-hidden>·</span>
+                      <RelativeTime iso={flag.createdAt} />
                     </span>
                   </span>
                   <span className="ll-risk-row__reason">
-                    <span className="ll-tag">
-                      <Code>{flag.rule}</Code>
+                    <span className="ll-tag ll-mono" translate="no">
+                      {flag.rule}
                     </span>
                     {flag.reason}
                   </span>
@@ -150,7 +136,7 @@ function Risk() {
                       />
                       <button
                         type="button"
-                        className="ll-button ll-button--primary"
+                        className="ll-button ll-button--primary ll-button--small"
                         disabled={Boolean(busyId)}
                         aria-busy={busyId === flag.id && clear.isPending}
                         onClick={() => clear.mutate({ id: flag.id })}
@@ -169,13 +155,10 @@ function Risk() {
               ))}
             </ul>
           )}
-        </section>
+        </Box>
 
-        <aside className="ll-card ll-detail" aria-labelledby="risk-rules-title">
+        <Box label="Standing Orders">
           <div className="ll-detail__body">
-            <h2 id="risk-rules-title" className="ll-detail__title">
-              Rules
-            </h2>
             <p className="ll-muted">
               Every approval in Payouts runs through these rules first.
               {rules.data && <> Your approval limit is {formatMoney(rules.data.approvalLimit)}.</>}
@@ -186,7 +169,7 @@ function Risk() {
                   <li key={rule.id}>
                     <div className="ll-rules__head">
                       <h3 className="ll-rules__name">{rule.name}</h3>
-                      {rule.open > 0 && <span className="ll-pill ll-pill--amber">{rule.open} held</span>}
+                      {rule.open > 0 && <span className="ll-pill ll-pill--pending">{rule.open} held</span>}
                     </div>
                     <p className="ll-muted">{rule.description}</p>
                   </li>
@@ -196,7 +179,7 @@ function Risk() {
               <SkeletonRows rows={4} />
             )}
           </div>
-        </aside>
+        </Box>
       </div>
     </div>
   );
@@ -226,7 +209,7 @@ function ConfirmButton({
   return (
     <button
       type="button"
-      className={`ll-button ${armed ? 'll-button--danger' : 'll-button--ghost'}`}
+      className={`ll-button ll-button--small ${armed ? 'll-button--danger' : 'll-button--ghost'}`}
       disabled={disabled}
       aria-busy={busy}
       onBlur={() => setArmed(false)}
@@ -243,12 +226,11 @@ function ConfirmButton({
 }
 
 function Score({ value }: { value: number }) {
-  const tone = value >= 80 ? 'red' : value >= 60 ? 'amber' : 'neutral';
   const level = value >= 80 ? 'High' : value >= 60 ? 'Medium' : 'Low';
   return (
     <span className="ll-score" role="img" aria-label={`${level} risk, score ${value} of 100`}>
       <span className="ll-score__track" aria-hidden>
-        <span className={`ll-score__fill ll-score__fill--${tone}`} style={{ width: `${value}%` }} />
+        <span className={`ll-score__fill ${value >= 80 ? 'll-score__fill--high' : ''}`} style={{ width: `${value}%` }} />
       </span>
       <span className="ll-mono" aria-hidden>
         {value}

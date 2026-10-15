@@ -1,6 +1,6 @@
 {
   "name": "@ledgerline/console",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,7 +16,12 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "server-only": "^0.0.1",
-    "@trpc/server": "^11.6.0"
+    "@trpc/server": "^11.6.0",
+    "@ledgerline/frontpage": "*",
+    "@ledgerline/ledger": "*",
+    "gsap": "^3.15.0",
+    "@gsap/react": "^2.1.2",
+    "three": "^0.186.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

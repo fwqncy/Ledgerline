@@ -1,8 +1,8 @@
-# Ledgerline
+# The Ledgerline
 
-A modular payments console. The console is split into modules that can each be deployed on its own, so the risk, payouts and support teams ship on their own schedule without redeploying the whole console.
+A modular payments console, set like a newspaper. The console is split into modules that can each be deployed on its own, so the risk, payouts and support teams ship on their own schedule without redeploying the whole console.
 
-Built with **Next.js**, **TypeScript** and **tRPC**.
+Built with **Next.js**, **TypeScript** and **tRPC**, with **GSAP** for motion and **three.js** for the globe.
 
 ## Run it
 
@@ -15,51 +15,60 @@ npm run dev        # http://localhost:3000
 
 For a production build, run `npm run build && npm start`. To typecheck, run `npm run typecheck`.
 
-Data lives in an in-memory store, seeded on start, so every restart begins from the same state.
+Data lives in an in-memory store, seeded on start with a year of trading history, so every restart begins from the same state.
+
+## Sections
+
+| Section | What it's for |
+| --- | --- |
+| **Front Page** | The day's edition. The lead headline is written from live numbers. It also has **The Ticker** (a candlestick chart of the treasury float over a year), **The Wire** (live activity), a three.js halftone globe of where money went, and a print edition. |
+| **Payouts** | Search, sort, filter & page through the payout book; approve one or many (with a 5-second undo); create payouts; export CSV. Rubber stamps land when a status changes. |
+| **Risk** | The review queue. Clear releases a payout to Payouts; reject needs a second click to confirm. |
+| **Support** | Merchant tickets with SLA timers, Assign to Me, canned replies (macros) & optimistic replies, each pinned next to the payout it's about. |
+| **Ledger** | The audit log (searchable, exportable) & lifetime accounts per beneficiary. |
+| **Settings** | Colour schemes: **Broadsheet** (cream & black, default), **Burgundy & Navy**, or **your own** from a colour wheel. Motion, density & the wire ticker. |
 
 ## Things to try
 
-- **Payouts → Approve** on *Northwind Ltd*. It passes the risk check and is paid.
-- **Approve** *Orchard Labs* (£24,600). It is over the £20,000 operator limit, so `withRiskCheck` stops the approval and sends the payout to Risk.
-- **Risk → Clear** that flag. The payout goes back to *pending* in Payouts, and approving it now succeeds.
-- **Support → T-1042** shows the linked payout and why Risk is holding it. Reply or resolve from there.
-
-Every action is written to the audit log and shown under *Activity* on the payout.
+- Press **⌘K** (Ctrl K) and type `orchard`, `po_8f21` or `theme`.
+- Press **?** for every shortcut. **G** then **P** jumps to Payouts.
+- On the Front Page, press **▶ Replay** on The Ticker, or focus the chart and use **← →** to read each day.
+- **Approve** *Northwind Ltd*, then watch the PAID stamp land. Approve *Orchard Labs* (£24,600) and Risk holds it; clear it in Risk and approve again.
+- Settings → **Your Own Colours** → drag around the wheel. The paper, ink & banners follow your colour, and the contrast readout tells you whether it's readable.
 
 ## Layout
 
 ```
-apps/console/           Next.js shell: nav, module frame, API route
+apps/console/           Next.js shell: masthead, sections, palette, shortcuts, settings, API routes
   modules.ts            export const modules = [risk, payouts, support]
-packages/core/          Shared: tRPC factory, protectedProcedure, withRiskCheck,
-                        audit, Prisma-style data store, design system
+packages/core/          Shared: tRPC factory, protectedProcedure, withRiskCheck, audit,
+                        Prisma-style store, themes, toasts & the design system
+modules/frontpage/      The Ticker chart, the globe & the lead story
 modules/payouts/        router.ts · service.ts · trpc.ts · client.ts · ui/
 modules/risk/           same shape
 modules/support/        same shape
+modules/ledger/         same shape
 ```
 
 Each module owns its:
 
-- **router and context.** `createModuleTRPC<Ctx>()` gives each module its own tRPC instance, so `ctx.payouts` exists only inside Payouts.
-- **API endpoint** at `/api/m/<module>`. Every endpoint is a separate tRPC server; the console's route just dispatches to it.
-- **client and query cache**, created by `createModuleClient`. A module's UI never shares state with another module.
-- **version and error boundary.** The footer shows `payouts@v3.12 · deployed 14 min ago`. A module that throws shows an error screen and the others keep working.
+- **router and context.** `createModuleTRPC<Ctx>()` gives each module its own tRPC instance.
+- **API endpoint** at `/api/m/<module>`.
+- **client and query cache**, from `createModuleClient`. Modules tell each other about changes with a browser event, never by importing each other.
+- **search results & palette commands**, contributed through the module contract.
+- **version and error boundary.** A module that throws shows an error screen and the others keep working.
 
 ## Deploying modules separately
 
-The same app can be deployed several times with a different set of modules mounted:
-
 | Variable | Purpose |
 | --- | --- |
-| `LEDGERLINE_MODULES=payouts` | Mount only these modules (comma-separated). Unmounted modules leave the nav and their API returns 404. |
-| `NEXT_PUBLIC_PAYOUTS_API_URL` (likewise `RISK`, `SUPPORT`) | Point a module's UI at another deployment's endpoint, e.g. `https://payouts.example.com/api/m/payouts`. |
+| `LEDGERLINE_MODULES=payouts` | Mount only these modules (comma-separated). |
+| `NEXT_PUBLIC_PAYOUTS_API_URL` (likewise `RISK`, `SUPPORT`, `FRONTPAGE`, `LEDGER`) | Point a module's UI at another deployment's endpoint. |
 | `LEDGERLINE_CORS_ORIGIN` | Set on a module deployment so a console on another origin can call it. |
 | `LEDGERLINE_DEPLOYED_AT` | ISO timestamp shown as "deployed … ago" (defaults to server start). |
 
-For example, the payouts team ships `payouts@v3.13` by deploying with `LEDGERLINE_MODULES=payouts`. The console keeps calling that endpoint, and nothing else is rebuilt.
+## Notes
 
-## Swapping in a real database
-
-`packages/core/src/db.ts` exposes the Prisma client subset the modules use (`findMany`, `findUnique`, `findFirst`, `count`, `create`, `update`). To use a real database, replace `db` with a `PrismaClient` and keep the same model names (`payout`, `riskFlag`, `ticket`, `auditEvent`); the module code stays as it is.
-
-The demo signs every request in as one operator. `createBaseContext` in `packages/core/src/server.ts` is where a real session would be resolved.
+- `packages/core/src/db.ts` exposes the Prisma client subset the modules use (`findMany` with `where`/`OR`/`contains`/`gte`, `orderBy`, `skip`, `take`; `findUnique`, `findFirst`, `count`, `create`, `update`). Swap in a real `PrismaClient` with the same model names and the module code stays as it is.
+- The demo signs every request in as one operator. `createBaseContext` in `packages/core/src/server.ts` is where a real session would be resolved.
+- The theme is stored in a cookie, so the first paint is already in the reader's colours.

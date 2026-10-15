@@ -5,6 +5,8 @@ import type { BaseContext, Operator } from './server';
 
 export const APPROVAL_LIMIT = 2_000_000;
 
+export const OPERATORS_ON_DUTY = ['Alex Morgan', 'Priya N.', 'Sam Ortiz', 'Jordan Lee'];
+
 export const RISK_RULES = [
   { id: 'limit', name: 'Operator Approval Limit', description: `Payouts above ${formatMoney(APPROVAL_LIMIT)} need a second review by Risk.` },
   { id: 'beneficiary-change', name: 'Beneficiary Change Window', description: 'Hold payouts when bank details changed in the last 24\u00a0hours.' },

@@ -1,23 +1,28 @@
 'use client';
 
+import { useNotifyDataChanged } from '@ledgerline/core/client';
 import {
+  Box,
   Code,
   Empty,
   FilterLinks,
   Money,
-  Notice,
+  PageHeader,
   RelativeTime,
   SkeletonRows,
   Spinner,
   StatusPill,
   SubmitShortcut,
+  toast,
+  useHotkeys,
   useHrefWith,
 } from '@ledgerline/core/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useRef, useState, type FormEvent } from 'react';
 import { ModuleProvider, useTRPC } from '../client';
+import { MACROS } from '../macros';
 
 const TICKET_STATUSES = ['open', 'waiting', 'resolved'] as const;
 type Filter = (typeof TICKET_STATUSES)[number] | undefined;
@@ -36,25 +41,22 @@ function Support() {
   const searchParams = useSearchParams();
   const status: Filter = TICKET_STATUSES.find((s) => s === searchParams.get('status'));
 
-  const list = useQuery(trpc.list.queryOptions({ status }));
+  const list = useQuery({ ...trpc.list.queryOptions({ status }), refetchInterval: 15_000 });
   const tickets = list.data ?? [];
-  const selectedId = tickets.find((t) => t.id === searchParams.get('id'))?.id ?? tickets[0]?.id ?? null;
+  const idParam = searchParams.get('id');
+  const selectedId = idParam ?? tickets[0]?.id ?? null;
 
   return (
     <div className="ll-page">
-      <header className="ll-page__header">
-        <div>
-          <h1 className="ll-page__title">Support</h1>
-          <p className="ll-page__subtitle">Merchant tickets, with the payout they’re about alongside.</p>
-        </div>
-      </header>
+      <PageHeader
+        kicker="Section E · Correspondence"
+        title="Support"
+        deck="Letters from merchants, each with the payout they’re asking about pinned alongside."
+      />
 
       <div className="ll-split ll-split--support">
-        <section className="ll-card ll-card--flush" aria-labelledby="tickets-title">
-          <h2 id="tickets-title" className="ll-visually-hidden">
-            Tickets
-          </h2>
-          <div className="ll-card__toolbar">
+        <Box label="The Inbox" meta={list.data ? `${tickets.length} shown` : undefined}>
+          <div className="ll-box__toolbar">
             <FilterLinks
               label="Filter by status"
               param="status"
@@ -73,7 +75,7 @@ function Support() {
           ) : list.isError ? (
             <Empty>
               Couldn’t load tickets. Check your connection & try again.
-              <button type="button" className="ll-button ll-button--ghost" onClick={() => list.refetch()}>
+              <button type="button" className="ll-button" onClick={() => list.refetch()}>
                 Retry
               </button>
             </Empty>
@@ -98,19 +100,25 @@ function Support() {
                     <span className="ll-row__main">
                       <span className="ll-row__title">{ticket.subject}</span>
                       <span className="ll-row__meta">
-                        <Code>{ticket.id}</Code> · {ticket.merchant} · <RelativeTime iso={ticket.updatedAt} />
+                        <span className="ll-mono" translate="no">
+                          {ticket.id}
+                        </span>
+                        <span aria-hidden>·</span>
+                        <span>{ticket.merchant}</span>
+                        <span aria-hidden>·</span>
+                        <span>{ticket.assignee ?? 'Unassigned'}</span>
                       </span>
                     </span>
-                    {ticket.priority === 'high' && <StatusPill status="high" />}
+                    <Sla due={ticket.slaDueAt} status={ticket.status} />
                     <StatusPill status={ticket.status} />
                   </Link>
                 </li>
               ))}
             </ul>
           )}
-        </section>
+        </Box>
 
-        <section className="ll-card ll-detail" aria-label="Conversation">
+        <section className="ll-box ll-detail" aria-label="Conversation">
           {selectedId ? (
             <Thread key={selectedId} id={selectedId} />
           ) : (
@@ -122,21 +130,28 @@ function Support() {
   );
 }
 
+/** Time left to first response; turns into an overdue warning once the target passes. */
+function Sla({ due, status }: { due: string; status: string }) {
+  if (status !== 'open') return null;
+  const overdue = Date.parse(due) < Date.now();
+  return (
+    <span className={`ll-pill ll-pill--${overdue ? 'rejected' : 'neutral'}`}>
+      {overdue ? 'Overdue' : 'Due'}&nbsp;
+      <RelativeTime iso={due} />
+    </span>
+  );
+}
+
 function Thread({ id }: { id: string }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const router = useRouter();
+  const notifyDataChanged = useNotifyDataChanged();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   const detailOptions = trpc.get.queryOptions({ id });
   const detail = useQuery(detailOptions);
 
-  const refresh = async () => {
-    await queryClient.invalidateQueries();
-    router.refresh();
-  };
-  const onError = (e: { message: string }) => setNotice({ tone: 'error', text: e.message });
+  const onError = (e: { message: string }) => toast.show({ tone: 'error', title: e.message });
 
   const reply = useMutation(
     trpc.reply.mutationOptions({
@@ -160,31 +175,62 @@ function Thread({ id }: { id: string }) {
         if (textareaRef.current) textareaRef.current.value = '';
         return { previous, body };
       },
+      onSuccess: () => toast.show({ tone: 'success', title: 'Reply sent' }),
       onError: (error, _input, context) => {
         if (context?.previous) queryClient.setQueryData(detailOptions.queryKey, context.previous);
         if (textareaRef.current && context) textareaRef.current.value = context.body;
-        setNotice({ tone: 'error', text: `Your reply wasn’t sent: ${error.message} Try sending it again.` });
+        toast.show({ tone: 'error', title: 'Your reply wasn’t sent', body: `${error.message} Your text is back in the box; try sending it again.` });
       },
-      onSettled: refresh,
+      onSettled: notifyDataChanged,
     }),
   );
-  const resolve = useMutation(trpc.resolve.mutationOptions({ onError, onSettled: refresh }));
-  const reopen = useMutation(trpc.reopen.mutationOptions({ onError, onSettled: refresh }));
+  const resolve = useMutation(
+    trpc.resolve.mutationOptions({
+      onSuccess: (t) => toast.show({ tone: 'success', title: `Resolved ${t.id}` }),
+      onError,
+      onSettled: notifyDataChanged,
+    }),
+  );
+  const reopen = useMutation(trpc.reopen.mutationOptions({ onError, onSettled: notifyDataChanged }));
+  const assign = useMutation(
+    trpc.assign.mutationOptions({
+      onSuccess: (t) => toast.show({ tone: 'success', title: `${t.id} is yours` }),
+      onError,
+      onSettled: notifyDataChanged,
+    }),
+  );
 
+  useHotkeys({
+    r: () => textareaRef.current?.focus(),
+    m: () => assign.mutate({ id }),
+  });
+
+  if (detail.isError) {
+    return <Empty>That ticket couldn’t be found. Pick another from the inbox.</Empty>;
+  }
   if (!detail.data) return <SkeletonRows rows={3} />;
-  const { ticket, payout, hold } = detail.data;
+  const { ticket, payout, hold, me } = detail.data;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const body = textareaRef.current?.value.trim() ?? '';
     if (!body) {
-      setFieldError(`Write a reply to ${ticket.merchant} first.`);
+      setFieldError(`Write a reply to ${ticket.merchant} first, or insert a macro.`);
       textareaRef.current?.focus();
       return;
     }
     setFieldError(null);
-    setNotice(null);
     reply.mutate({ id, body });
+  }
+
+  function insertMacro(macroId: string) {
+    const macro = MACROS.find((m) => m.id === macroId);
+    const box = textareaRef.current;
+    if (!macro || !box) return;
+    const text = macro.body.replace('{merchant}', ticket.merchant);
+    box.value = box.value.trim() ? `${box.value.trimEnd()}\n\n${text}` : text;
+    setFieldError(null);
+    box.focus();
   }
 
   return (
@@ -193,40 +239,58 @@ function Thread({ id }: { id: string }) {
         <div>
           <h2 className="ll-detail__title">{ticket.subject}</h2>
           <span className="ll-row__meta">
-            <Code>{ticket.id}</Code> · {ticket.merchant}
+            <Code copy>{ticket.id}</Code>
+            <span aria-hidden>·</span>
+            <span>{ticket.merchant}</span>
+            <span aria-hidden>·</span>
+            <span>{ticket.assignee ? `With ${ticket.assignee}` : 'Unassigned'}</span>
           </span>
         </div>
-        {ticket.status === 'resolved' ? (
-          <button
-            type="button"
-            className="ll-button ll-button--ghost"
-            disabled={reopen.isPending}
-            aria-busy={reopen.isPending}
-            onClick={() => reopen.mutate({ id })}
-          >
-            {reopen.isPending && <Spinner />}
-            Reopen
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="ll-button ll-button--primary"
-            disabled={resolve.isPending}
-            aria-busy={resolve.isPending}
-            onClick={() => resolve.mutate({ id })}
-          >
-            {resolve.isPending && <Spinner />}
-            Resolve
-          </button>
-        )}
+        <span className="ll-actions">
+          {ticket.assignee !== me && ticket.status !== 'resolved' && (
+            <button
+              type="button"
+              className="ll-button ll-button--small ll-button--ghost"
+              disabled={assign.isPending}
+              aria-busy={assign.isPending}
+              onClick={() => assign.mutate({ id })}
+            >
+              {assign.isPending && <Spinner />}
+              Assign to Me
+            </button>
+          )}
+          {ticket.status === 'resolved' ? (
+            <button
+              type="button"
+              className="ll-button ll-button--small"
+              disabled={reopen.isPending}
+              aria-busy={reopen.isPending}
+              onClick={() => reopen.mutate({ id })}
+            >
+              {reopen.isPending && <Spinner />}
+              Reopen
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="ll-button ll-button--small ll-button--primary"
+              disabled={resolve.isPending}
+              aria-busy={resolve.isPending}
+              onClick={() => resolve.mutate({ id })}
+            >
+              {resolve.isPending && <Spinner />}
+              Resolve
+            </button>
+          )}
+        </span>
       </div>
 
       {payout && (
         <div className="ll-linked">
           <h3 className="ll-section-title">Linked Payout</h3>
           <span className="ll-linked__row">
-            <Link href={`/payouts?id=${payout.id}`} className="ll-link">
-              <Code>{payout.id}</Code>
+            <Link href={`/payouts?id=${payout.id}`} className="ll-link ll-mono" translate="no">
+              {payout.id}
             </Link>
             <Money amount={payout.amount} />
             <StatusPill status={payout.status} />
@@ -253,8 +317,6 @@ function Thread({ id }: { id: string }) {
         ))}
       </ol>
 
-      <Notice notice={notice} onDismiss={() => setNotice(null)} />
-
       <form className="ll-composer" onSubmit={submit} noValidate>
         <label htmlFor="reply" className="ll-visually-hidden">
           Reply to {ticket.merchant}
@@ -264,7 +326,7 @@ function Thread({ id }: { id: string }) {
           id="reply"
           name="reply"
           placeholder={`Reply to ${ticket.merchant}…`}
-          rows={3}
+          rows={4}
           aria-invalid={Boolean(fieldError)}
           aria-describedby={fieldError ? 'reply-error' : undefined}
           onInput={() => fieldError && setFieldError(null)}
@@ -273,10 +335,29 @@ function Thread({ id }: { id: string }) {
           }}
         />
         <div className="ll-composer__bar">
+          <label htmlFor="macro" className="ll-visually-hidden">
+            Insert a macro
+          </label>
+          <select
+            id="macro"
+            className="ll-select"
+            style={{ width: 'auto', minHeight: 32, fontSize: 14 }}
+            value=""
+            onChange={(e) => insertMacro(e.target.value)}
+          >
+            <option value="" disabled>
+              Insert Macro…
+            </option>
+            {MACROS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
           <span className="ll-muted">
             <SubmitShortcut /> to send
           </span>
-          <button type="submit" className="ll-button ll-button--primary" disabled={reply.isPending} aria-busy={reply.isPending}>
+          <button type="submit" className="ll-button ll-button--primary ll-button--small" disabled={reply.isPending} aria-busy={reply.isPending}>
             {reply.isPending && <Spinner />}
             Send Reply
           </button>
@@ -284,7 +365,7 @@ function Thread({ id }: { id: string }) {
       </form>
       <div aria-live="polite">
         {fieldError && (
-          <p id="reply-error" className="ll-field-error">
+          <p id="reply-error" className="ll-field__error">
             {fieldError}
           </p>
         )}

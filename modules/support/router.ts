@@ -33,6 +33,13 @@ export const supportRouter = router({
       return ctx.support.setStatus(input.id, 'resolved');
     }),
 
+  assign: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.audit('ticket.assign', input.id);
+      return ctx.support.assignToMe(input.id);
+    }),
+
   reopen: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {

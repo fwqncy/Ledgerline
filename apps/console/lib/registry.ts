@@ -1,6 +1,6 @@
 import 'server-only';
 import type { ConsoleModule } from '@ledgerline/core/module';
-import { modules } from '../modules';
+import { modules, newsroom } from '../modules';
 
 /**
  * LEDGERLINE_MODULES=payouts,support mounts a subset; by default every module is mounted.
@@ -8,6 +8,8 @@ import { modules } from '../modules';
  */
 const enabled = process.env.LEDGERLINE_MODULES?.split(',').map((name) => name.trim());
 
-export const mountedModules: ConsoleModule[] = modules.filter((m) => !enabled || enabled.includes(m.manifest.name));
+const all: ConsoleModule[] = [newsroom.lead, ...modules, newsroom.archive];
+
+export const mountedModules: ConsoleModule[] = all.filter((m) => !enabled || enabled.includes(m.manifest.name));
 
 export const findModule = (name: string) => mountedModules.find((m) => m.manifest.name === name);

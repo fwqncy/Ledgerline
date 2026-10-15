@@ -3,7 +3,8 @@ import { db, newId, type Db } from './db';
 import { APPROVAL_LIMIT, enforceRiskCheck } from './risk';
 
 export { TRPCError } from '@trpc/server';
-export { RISK_RULES, APPROVAL_LIMIT } from './risk';
+export { RISK_RULES, APPROVAL_LIMIT, enforceRiskCheck } from './risk';
+export { OPERATORS_ON_DUTY } from './risk';
 
 export interface Operator {
   id: string;
