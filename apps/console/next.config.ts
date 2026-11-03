@@ -15,6 +15,10 @@ const config: NextConfig = {
   ],
   turbopack: { root: workspaceRoot },
   outputFileTracingRoot: workspaceRoot,
+  experimental: {
+    // Marks this app as upgraded by Next's security upgrade agent.
+    agentUpgrade: 'security',
+  },
 };
 
 export default config;
