@@ -4,7 +4,8 @@
   "workspaces": [
     "apps/*",
     "modules/*",
-    "packages/*"
+    "packages/*",
+    "partner-api"
   ],
   "engines": {
     "node": ">=20.9"
@@ -13,6 +14,10 @@
     "dev": "npm run dev -w @ledgerline/console",
     "build": "npm run build -w @ledgerline/console",
     "start": "npm run start -w @ledgerline/console",
-    "typecheck": "tsc -p apps/console --noEmit"
+    "typecheck": "tsc -p apps/console --noEmit",
+    "partner:dev": "npm run dev -w @ledgerline/partner-api",
+    "partner:setup": "npm run db:migrate -w @ledgerline/partner-api && npm run db:seed -w @ledgerline/partner-api",
+    "test:partner": "npm test -w @ledgerline/partner-api",
+    "test:integration": "npm run test:integration -w @ledgerline/partner-api"
   }
 }

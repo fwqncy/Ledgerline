@@ -1,0 +1,209 @@
+// Partner API schema. Owned by partner-api alone: the console keeps its own
+// in-memory store (packages/core/src/db.ts) and never reads these tables.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- Partners & credentials ----------
+
+model Partner {
+  id            String   @id
+  name          String
+  /// Where payout status webhooks are POSTed. Null means "record only".
+  webhookUrl    String?  @map("webhook_url")
+  /// HMAC secret used to sign webhook bodies.
+  webhookSecret String   @map("webhook_secret")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  apiKeys          ApiKey[]
+  accounts         Account[]
+  payouts          Payout[]
+  webhookDeliveries WebhookDelivery[]
+  idempotencyKeys  IdempotencyKey[]
+
+  @@map("partners")
+}
+
+model Scope {
+  /// e.g. "ledger:read", "payouts:write"
+  name        String        @id
+  description String
+  apiKeys     ApiKeyScope[]
+
+  @@map("scopes")
+}
+
+model ApiKey {
+  id         String    @id
+  partnerId  String    @map("partner_id")
+  name       String
+  /// Public, non-secret lookup part of the key (e.g. "llk_test_3f9a1c2b").
+  prefix     String    @unique
+  /// HMAC-SHA256 of the full key. The key itself is never stored.
+  hash       String
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  partner Partner       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  scopes  ApiKeyScope[]
+
+  @@index([partnerId])
+  @@map("api_keys")
+}
+
+model ApiKeyScope {
+  apiKeyId String @map("api_key_id")
+  scope    String
+
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  scopeRef Scope  @relation(fields: [scope], references: [name])
+
+  @@id([apiKeyId, scope])
+  @@map("api_key_scopes")
+}
+
+// ---------- Ledger (seeded from @ledgerline/core) ----------
+
+enum AccountKind {
+  TREASURY
+  BENEFICIARY
+}
+
+model Account {
+  id        String      @id
+  partnerId String      @map("partner_id")
+  kind      AccountKind
+  name      String
+  /// Masked account number, e.g. "GB •• 4410".
+  number    String
+  city      String?
+  country   String
+  currency  String      @default("GBP")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  partner Partner       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  entries LedgerEntry[]
+  payouts Payout[]
+
+  @@index([partnerId])
+  @@map("accounts")
+}
+
+enum EntryDirection {
+  CREDIT
+  DEBIT
+}
+
+model LedgerEntry {
+  id          String         @id
+  accountId   String         @map("account_id")
+  payoutId    String?        @map("payout_id")
+  direction   EntryDirection
+  /// Minor units (pence).
+  amount      BigInt
+  currency    String         @default("GBP")
+  description String
+  occurredAt  DateTime       @map("occurred_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  payout  Payout? @relation(fields: [payoutId], references: [id])
+
+  // Cursor pagination walks (occurred_at desc, id desc) within an account set.
+  @@index([accountId, occurredAt(sort: Desc), id(sort: Desc)])
+  @@map("ledger_entries")
+}
+
+enum PayoutStatus {
+  PENDING
+  REVIEW
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+model Payout {
+  id          String       @id
+  partnerId   String       @map("partner_id")
+  /// The beneficiary account being paid.
+  accountId   String       @map("account_id")
+  /// Minor units (pence).
+  amount      BigInt
+  currency    String       @default("GBP")
+  status      PayoutStatus
+  reference   String
+  method      String
+  createdBy   String       @map("created_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  paidAt      DateTime?    @map("paid_at")
+  cancelledAt DateTime?    @map("cancelled_at")
+
+  partner           Partner           @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  account           Account           @relation(fields: [accountId], references: [id])
+  entries           LedgerEntry[]
+  webhookDeliveries WebhookDelivery[]
+
+  @@index([partnerId, createdAt(sort: Desc)])
+  @@index([status])
+  @@map("payouts")
+}
+
+// ---------- Webhooks & idempotency ----------
+
+enum DeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+model WebhookDelivery {
+  id             String         @id
+  partnerId      String         @map("partner_id")
+  payoutId       String?        @map("payout_id")
+  /// e.g. "payout.paid", "payout.cancelled"
+  event          String
+  payload        Json
+  status         DeliveryStatus @default(PENDING)
+  attempts       Int            @default(0)
+  responseStatus Int?           @map("response_status")
+  lastError      String?        @map("last_error")
+  nextAttemptAt  DateTime       @default(now()) @map("next_attempt_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  deliveredAt    DateTime?      @map("delivered_at")
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  payout  Payout? @relation(fields: [payoutId], references: [id])
+
+  @@index([partnerId, createdAt(sort: Desc)])
+  @@index([status, nextAttemptAt])
+  @@map("webhook_deliveries")
+}
+
+enum IdempotencyState {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model IdempotencyKey {
+  id          String           @id
+  partnerId   String           @map("partner_id")
+  key         String
+  /// SHA-256 of the operation name + variables, to catch key reuse with a different request.
+  requestHash String           @map("request_hash")
+  state       IdempotencyState @default(IN_PROGRESS)
+  /// The GraphQL response body, replayed verbatim on retries.
+  response    Json?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  expiresAt   DateTime         @map("expires_at")
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, key])
+  @@map("idempotency_keys")
+}
