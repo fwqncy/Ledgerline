@@ -4,3 +4,7 @@ node_modules
 next-env.d.ts
 .env*.local
 .DS_Store
+
+# partner-api
+partner-api/.env
+partner-api/src/generated
