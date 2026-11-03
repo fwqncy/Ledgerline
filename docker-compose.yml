@@ -1,0 +1,61 @@
+# Ledgerline local services. The console itself still runs with `npm run dev`
+# and keeps its in-memory store; these services are for the Partner API.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ledgerline
+      POSTGRES_PASSWORD: ledgerline
+      POSTGRES_DB: partner_api
+    ports:
+      - "5433:5432"
+    volumes:
+      - partner-api-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerline -d partner_api"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # The external Partner API (GraphQL at http://localhost:4000/graphql).
+  # Migrates & seeds on start. Development settings: the demo key is seeded and
+  # secrets are the dev defaults. Never run these values in production.
+  partner-api:
+    build:
+      context: .
+      dockerfile: partner-api/Dockerfile
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://ledgerline:ledgerline@postgres:5432/partner_api
+      PORT: "4000"
+      JWT_SECRET: dev-only-change-me-to-a-long-random-string
+      API_KEY_PEPPER: dev-only-pepper-change-me
+      PARTNER_ADMIN_TOKEN: dev-admin-token
+      SETTLE_AFTER_MS: "15000"
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Disposable server for `TEST_DATABASE_URL=... npm run test:integration`.
+  # Each test run creates and drops its own database here.
+  postgres-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ledgerline
+      POSTGRES_PASSWORD: ledgerline
+      POSTGRES_DB: postgres
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerline"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  partner-api-data:

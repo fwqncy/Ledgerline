@@ -78,7 +78,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
 
       <footer className="ll-colophon">
         <span>
-          Printed by Ledgerline · {operator} on duty · <Link href="/settings">Settings</Link>
+          Printed by Ledgerline · {operator} on duty · <Link href="/settings">Settings</Link> · <Link href="/developers">Developers</Link>
         </span>
         <span className="ll-checker" aria-hidden />
         <span translate="no">{nav.map((m) => `${m.name}@v${m.version}`).join(' · ')}</span>

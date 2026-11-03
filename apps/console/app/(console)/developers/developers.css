@@ -1,0 +1,14 @@
+/*
+  Tailwind for /developers only.
+  - No preflight: the console's reset & type styles stay exactly as they are.
+  - Every utility is prefixed `tw:` (e.g. `tw:grid`), so nothing can collide with `ll-*`
+    classes, even after a client-side navigation keeps this stylesheet loaded.
+  - Not in a cascade layer, so utilities win over the console's element styles by
+    specificity, as usual, rather than losing to all unlayered CSS.
+  - Only this folder is scanned for class names.
+  Colours come from the console's theme tokens (var(--ink), var(--paper)…), so the
+  portal follows Broadsheet, Burgundy & Navy, or the reader's own colours.
+*/
+@import 'tailwindcss/theme.css' prefix(tw);
+@import 'tailwindcss/utilities.css' prefix(tw) source(none);
+@source './';
